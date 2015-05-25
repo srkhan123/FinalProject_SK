@@ -1,0 +1,318 @@
+---
+title: "Final Project"
+output: html_document
+---
+
+An attempt to find the optimal number of calls to be made on an account in a month by a sales representative.
+
+1) Import data
+2) Scrub data
+3) Prepare data
+4) Explore data
+5) Analyze data
+6) Draw conclusions
+
+###Librairies used
+```{r}
+#install.packages("date")
+#install.packages("zipcode")
+#install.packages("ggplot2"")
+#install.packages("ggmap")
+
+library(dplyr) #select arrange
+library(date)  #as.date
+library(zipcode) #adds leading zipcodes
+library(ggplot2)
+library(ggmap)
+library(RCurl)
+#library(plyr)   #rename columns
+```
+
+### Import Data stored on GitHub 
+```{r}
+mydata <- NULL
+data <- getURL("https://raw.githubusercontent.com/srkhan123/Final-Project/master/skd.csv",
+               ssl.verifypeer=0L, followlocation=1L)
+mydata <- read.csv(text=data)
+str(mydata)
+head(mydata)
+```
+
+### Tidy up Data
+```{r}
+mydata$TG_ID <- factor(mydata$TG_ID) #TG_ID should by factor as an identifier
+mydata$ZIPCODE <- as.factor(clean.zipcodes(mydata$ZIP)) #clean zipcodes by adding leading 0 and 5 digit long
+mydata$ZIP <- NULL #delete old Zip column
+head(mydata)
+str(mydata)
+
+```
+
+### Add map coordinates to zipcodes Longitude and Latitude for ggmap
+```{r}
+data(zipcode)
+mydata <- merge(mydata, zipcode, by.x = 'ZIPCODE', by.y = 'zip', all.x=TRUE)
+head(mydata)
+
+```
+
+
+#Histogram of Units 
+```{r}
+
+myunits <- mydata %>%
+          filter(UNITS != 0)
+
+#myunits[ which(myunits$UNITS == 0),]  
+
+hist(myunits$UNITS, breaks = 50, main="Order Size Frequency", xlab="UNITS", col="lightgreen", xlim = c(-20,100))
+
+```
+
+
+#Histogram of CAlls 
+```{r}
+
+mycalls <- mydata %>%
+          filter(CALLS != 0)
+
+#mycalls[ which(mycalls$CALLS == 0),]  
+
+hist(mycalls$CALLS, breaks = 50, main="Number of Call Frequency", xlab="CALLS", col="lightblue", xlim = c(0,10))
+
+```
+
+#Plot and exploring Correlation
+```{r}
+
+plot(mydata$CALLS, mydata$UNITS , xlab="CALLS" , ylab="UNITS")
+
+cor(myunits$CALLS, myunits$UNITS)
+
+cor(mycalls$CALLS, mycalls$UNITS)
+
+```
+
+#Quantile Plot
+```{r}
+qqnorm(mydata$UNITS, main = "Normal Q-Q Plot for Units")
+qqline(mydata$UNITS)
+
+qqnorm(mydata$CALLS, main = "Normal Q-Q Plot for Calls")
+qqline(mydata$CALLS)
+
+```
+
+#Plotting data for zipcodes from the package using ggplot2
+```{r}
+data(zipcode)
+zipcode$region = substr(zipcode$zip, 1, 1)
+ 
+g = ggplot(data = zipcode) + geom_point(aes(x=longitude, y=latitude, colour=region))
+ 
+# simplify display and limit to the "lower 48"
+g = g + theme_bw() + scale_x_continuous(limits = c(-125,-66), breaks = NULL)
+g = g + scale_y_continuous(limits = c(25,50), breaks = NULL)
+ 
+# don't need axis labels
+g = g + labs(x=NULL, y=NULL)
+g
+
+```
+
+#Plotting using mydata and ggplot2
+```{r}
+g <- NULL
+g = ggplot(data = mydata) 
+g = g + geom_point(aes(x=CALLS, y=UNITS))
+#g = g + facet_grid(. ~ REGION)
+#g = g + geom_smooth(method = "lm")
+g = g + theme_gray()
+g
+
+```
+
+
+#using ggmap with Units
+```{r}
+map <- NULL
+map <- get_map(location = 'united states', zoom = 4, maptype = "terrain", 
+               source = 'google', color = 'color')
+
+ggmap(map)+geom_point(aes (x=longitude, y=latitude, show_guide = TRUE,color = UNITS), 
+                      data = myunits, alpha = 0.5, na.rm = T )
+     
+```
+
+
+#using ggmap with Calls
+```{r}
+map <- NULL
+map <- get_map(location = 'united states', zoom =4, maptype = "terrain", 
+               source = 'google', color = 'color')
+
+ggmap(map)+geom_point(aes (x=longitude, y=latitude, show_guide = TRUE,color = CALLS), 
+                      data = mycalls, alpha = 0.5, na.rm = T )
+      
+```
+
+
+
+#Normalizing data to show units for each account over 3 years
+```{r}
+str(mydata)
+myaccounts <- NULL
+myaccounts <- mydata %>%
+              group_by(ACCOUNT_NUM, NAME, ADDRESS, CITY, STATE, ZIPCODE) %>% #
+              #select(OUTLET_NUM, NAME, ADDRESS, CITY, STATE, ZIPCODE) %>%
+              summarise( 
+                TOTAL_UNITS = sum(UNITS), 
+                TOTAL_CALLS = sum(CALLS)
+              ) 
+
+
+#check an account
+myaccounts[ which(myaccounts$TOTAL_UNITS >0),]   
+
+myaccounts[ which(myaccounts$ACCOUNT_NUM == '15143201'),]   
+
+mydata[ which(mydata$ACCOUNT_NUM == '15143201'),]   
+                   
+       
+
+head (myaccounts)
+str(myaccounts)
+              
+summary(myaccounts)
+  
+
+```
+
+
+#adding number of counts for units > 0 and Calls > 0
+```{r}
+
+UnitsCount <- NULL
+UnitsCount <- mydata %>% 
+              filter(UNITS > 0) %>%
+              count(ACCOUNT_NUM) 
+colnames(UnitsCount)[colnames(UnitsCount)=="n"] <- "NumberOfMonthsOrdered"
+
+
+myaccountUnits <- merge(myaccounts, UnitsCount, by.x = 'ACCOUNT_NUM', by.y = 'ACCOUNT_NUM' , all.x=TRUE)
+
+        
+#check an account
+myaccountUnits[ which(myaccountUnits$ACCOUNT_NUM == '15143201'),]   
+
+#----------------------------------------------------------------------------------------------------
+
+CallsCount <- NULL
+CallsCount <- mydata %>% 
+              filter(CALLS > 0) %>%
+              count(ACCOUNT_NUM) 
+
+colnames(CallsCount)[colnames(CallsCount)=="n"] <- "NumberOfMonthsCalled"
+
+ 
+#check an account
+CallsCount[ which(CallsCount$ACCOUNT_NUM == '15143201'),]
+
+myaccounts <- merge(myaccounts, CallsCount, by.x = 'ACCOUNT_NUM', by.y = 'ACCOUNT_NUM' , all.x=TRUE)
+          
+#check an account
+myaccounts[ which(myaccounts$ACCOUNT_NUM == '15143201'),]
+
+#-------------------
+
+myaccounts <- merge(myaccounts, myaccountUnits, by.x = 'ACCOUNT_NUM', by.y = 'ACCOUNT_NUM' , all.x=TRUE)
+
+
+myaccounts[ which(myaccounts$ACCOUNT_NUM == '15143201'),]
+
+myaccounts$NAME.y <- NULL  
+myaccounts$ADDRESS.y  <- NULL
+myaccounts$CITY.y  <- NULL
+myaccounts$STATE.y  <- NULL
+myaccounts$ZIPCODE.y  <- NULL
+myaccounts$TOTAL_UNITS.y  <- NULL
+myaccounts$TOTAL_CALLS.y <- NULL
+
+
+myaccounts[ which(myaccounts$ACCOUNT_NUM == '15143201'),]
+
+
+```
+
+#Analyzing data further
+```{r}
+#graph units and calls
+
+plot(myaccounts$TOTAL_UNITS.x~myaccounts$TOTAL_CALLS.x, xlab = "CALLS", ylab = "UNITS")
+
+myaccounts[ which(myaccounts$TOTAL_UNITS.x > 2000),]
+
+myaccounts[ which(myaccounts$NumberOfMonthsOrdered > 25),]
+
+plot(myaccounts$NumberOfMonthsOrdered~myaccounts$NumberOfMonthsCalled, xlab = "NumberOfMonthsCalled in last 3 years", ylab = "NumberOfMonthsOrdered in last 3 years")
+
+cor(myaccounts$NumberOfMonthsOrdered, myaccounts$NumberOfMonthsCalled)
+```
+
+### The aboveplot shows that number of optimum calls in 3 years is 20 to get the most optimum level of ordering
+### which is equal to which gives orders about 50% of the time
+
+
+
+####Analyzing data further with Quartiles
+```{r}
+
+levels = myaccounts$TOTAL_UNITS.x     
+quantile(levels, c(0, .25, .5, .75, 1), na.rm = TRUE) 
+
+# 0%  25%  50%  75% 100% 
+# -12    6   16   42 2568 
+
+quantile(myaccounts$TOTAL_UNITS.x , probs = seq(0, 1, 0.25), na.rm = TRUE, names = TRUE)
+
+myQuantiles <- NULL
+myQuantiles <- within(myaccounts, quantile <- cut(myaccounts$TOTAL_UNITS.x, quantile(myaccounts$TOTAL_UNITS.x, probs=0.25, 0.5, 0.75), include.lowest=TRUE, labels=FALSE))
+
+myQuantiles[ which(myQuantiles$NumberOfMonthsOrdered > 25),]
+
+plot(myQuantiles$quantile~myQuantiles$NumberOfMonthsOrdered, xlab = "NumberOfMonthsOrdered", ylab="Quantiles")
+
+
+plot(myQuantiles$quantile~myQuantiles$NumberOfMonthsCalled, xlab = "NumberOfMonthsCalled", ylab = "Quantiles")
+
+```
+
+
+#Quantile Plot
+```{r}
+qqnorm(myQuantiles$NumberOfMonthsOrdered, main = "Normal Q-Q Plot for Units")
+qqline(myQuantiles$NumberOfMonthsOrdered)
+
+qqnorm(myQuantiles$NumberOfMonthsCalled, main = "Normal Q-Q Plot for Calls")
+qqline(myQuantiles$NumberOfMonthsCalled)
+
+```
+
+
+
+#Linear Regression
+```{r}
+lmResult <- with(myaccounts, lm(NumberOfMonthsOrdered ~ NumberOfMonthsCalled))
+
+summary(lmResult)
+
+
+plot(myaccounts$NumberOfMonthsOrdered~myaccounts$NumberOfMonthsCalled, xlab = "NumberOfMonthsCalled in last 3 years", ylab = "NumberOfMonthsOrdered in last 3 years")
+abline(lmResult, col="red")
+
+plot(lmResult)
+
+```
+
+###Conclusion
+##### the Plot data shows with abline that you need to make about 2 calls to get an order on an account
